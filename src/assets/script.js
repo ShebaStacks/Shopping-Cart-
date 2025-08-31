@@ -1,4 +1,3 @@
-
 /* =======================
    Products
    ======================= */
@@ -15,164 +14,198 @@ let cart = [];
 let totalPaid = 0;
 
 /* =======================
-   Helpers (logic-only)
+   Helpers
    ======================= */
+
+/** Return product by id from products or cart. */
 function getProductById(productId, fromCart = false) {
   return (fromCart ? cart : products).find((p) => p.productId === productId);
 }
-function cartTotal() {
-  return cart.reduce((sum, p) => sum + p.price * p.quantity, 0);
+
+/** Format number as money string. */
+function toMoney(n) {
+  return `$${Number(n).toFixed(2)}`;
 }
 
-// Logic-safe UI refresher (no-op in tests)
+/** Safely refresh UI in browser only. */
 function refreshUI() {
-  if (typeof window !== "undefined") {
-    if (typeof window.renderCart === "function") window.renderCart();
-    if (typeof window.updateCheckout === "function") window.updateCheckout();
-  }
+  if (typeof document === "undefined") return;
+  if (typeof renderCart === "function") renderCart();
+  if (typeof updateCheckout === "function") updateCheckout();
 }
 
 /* =======================
-   Cart Functions (required)
+   Cart Functions
    ======================= */
+
+/** Add a product; ensure it exists in cart; increase quantity. */
 function addProductToCart(productId) {
-  const existing = getProductById(productId, true);
-  if (existing) {
-    existing.quantity++;
-  } else {
-    const product = getProductById(productId);
-    if (!product) return;
-    cart.push({ ...product, quantity: 1 }); // copy with own quantity
-  }
+  const product = getProductById(productId);
+  if (!product) return;
+
+  product.quantity += 1;
+  if (!getProductById(productId, true)) cart.push(product);
+
   refreshUI();
 }
 
+/** Increase quantity for a product in cart. */
 function increaseQuantity(productId) {
-  const item = getProductById(productId, true);
-  if (!item) return;
-  item.quantity++;
+  const product = getProductById(productId);
+  if (!product) return;
+
+  product.quantity += 1;
+  if (!getProductById(productId, true)) cart.push(product);
+
   refreshUI();
 }
 
+/** Decrease quantity; remove from cart if it reaches zero. */
 function decreaseQuantity(productId) {
-  const item = getProductById(productId, true);
-  if (!item) return;
-  item.quantity--;
-  if (item.quantity === 0) return removeProductFromCart(productId);
+  const product = getProductById(productId);
+  if (!product) return;
+
+  if (product.quantity > 0) product.quantity -= 1;
+  if (product.quantity === 0) cart = cart.filter((i) => i.productId !== productId);
+
   refreshUI();
 }
 
+/** Remove a product entirely from the cart. */
 function removeProductFromCart(productId) {
+  const product = getProductById(productId);
+  if (!product) return;
+
+  product.quantity = 0;
   cart = cart.filter((i) => i.productId !== productId);
+
   refreshUI();
 }
 
+/** Empty the cart and reset product quantities. */
 function emptyCart() {
+  cart.forEach((p) => { p.quantity = 0; });
   cart = [];
   refreshUI();
 }
 
 /* =======================
-   Checkout (required)
+   Checkout
    ======================= */
+
+/** Return the total cost of items in the cart. */
+function cartTotal() {
+  return cart.reduce((sum, p) => sum + p.price * p.quantity, 0);
+}
+
+/** Process a payment; return change (positive) or balance due (negative). */
 function pay(amount) {
   totalPaid += amount;
   const diff = totalPaid - cartTotal();
-  if (diff >= 0) {
-    totalPaid = 0;
-    emptyCart(); // clear after successful pay
-  }
-  return diff; // +change / -balance
+  if (diff >= 0) totalPaid = 0;
+  return diff;
 }
 
 /* =======================
-   DOM / UI (browser-only)
+   DOM / UI (browser only)
    ======================= */
-if (typeof document !== "undefined") {
-  const toMoney = (n) => `$${Number(n).toFixed(2)}`;
+let productListEl, cartListEl, totalEl, payForm, payInput, receiptEl;
 
-  const productListEl = document.getElementById("products");
-  const cartListEl    = document.getElementById("cart-items");
-  const totalEl       = document.getElementById("cart-total") ||
-                        document.querySelector("[data-cart-total]") ||
-                        document.getElementById("total");
-  const payForm       = document.getElementById("pay-form") ||
-                        document.querySelector("form[data-pay-form]");
-  const payInput      = document.getElementById("cash-received") ||
-                        document.querySelector("#cashReceived, [name='cash']");
-  const receiptEl     = document.getElementById("receipt") ||
-                        document.querySelector("[data-receipt]");
+/** Cache DOM elements. */
+function bindUI() {
+  if (typeof document === "undefined") return;
 
-  function renderProducts() {
-    if (!productListEl) return;
-    productListEl.innerHTML = "";
-    products.forEach((p) => {
-      const div = document.createElement("div");
-      div.classList.add("product");
-      div.innerHTML = `
-        <img src="${p.image}" alt="${p.name}" />
-        <h3>${p.name}</h3>
-        <p>${toMoney(p.price)}</p>
-        <button onclick="addProductToCart(${p.productId})">Add to Cart</button>
-      `;
-      productListEl.appendChild(div);
-    });
-  }
+  productListEl = document.getElementById("products");
+  cartListEl    = document.getElementById("cart-items");
+  totalEl       = document.getElementById("cart-total")
+               || document.querySelector("[data-cart-total]")
+               || document.getElementById("total");
+  payForm       = document.getElementById("pay-form")
+               || document.querySelector("form[data-pay-form]");
+  payInput      = document.getElementById("cash-received")
+               || document.querySelector("#cashReceived, [name='cash']");
+  receiptEl     = document.getElementById("receipt")
+               || document.querySelector("[data-receipt]");
+}
 
-  function updateCheckout() {
-    if (!totalEl) return;
-    totalEl.textContent = `Total: ${toMoney(cartTotal())}`;
-  }
+/** Render storefront products. */
+function renderProducts() {
+  if (typeof document === "undefined" || !productListEl) return;
 
-  function renderCart() {
-    if (!cartListEl) return;
-    cartListEl.innerHTML = "";
-    cart.forEach((item) => {
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <img src="${item.image}" alt="${item.name}" width="50" />
-        <span>${item.name} - ${toMoney(item.price)} x ${item.quantity}</span>
-        <button onclick="increaseQuantity(${item.productId})">+</button>
-        <button onclick="decreaseQuantity(${item.productId})">-</button>
-        <button onclick="removeProductFromCart(${item.productId})">Remove</button>
-      `;
-      cartListEl.appendChild(li);
-    });
-    updateCheckout();
-  }
+  productListEl.innerHTML = "";
+  products.forEach((p) => {
+    const div = document.createElement("div");
+    div.classList.add("product");
+    div.innerHTML = `
+      <img src="${p.image}" alt="${p.name}" />
+      <h3>${p.name}</h3>
+      <p>${toMoney(p.price)}</p>
+      <button onclick="addProductToCart(${p.productId})">Add to Cart</button>
+    `;
+    productListEl.appendChild(div);
+  });
+}
 
-  function wireCheckoutForm() {
-    if (!payForm) return;
-    payForm.addEventListener("submit", function (e) {
-      e.preventDefault();
-      const amount = Number(payInput ? payInput.value : 0);
-      const result = pay(amount);
+/** Render cart items and controls. */
+function renderCart() {
+  if (typeof document === "undefined" || !cartListEl) return;
 
-      if (receiptEl) {
-        if (result > 0) {
-          receiptEl.textContent = `Payment successful! Change due: ${toMoney(result)}`;
-        } else if (result < 0) {
-          receiptEl.textContent = `Remaining balance: ${toMoney(Math.abs(result))}`;
-        } else {
-          receiptEl.textContent = "Payment successful! No change due.";
-        }
+  cartListEl.innerHTML = "";
+  cart.forEach((item) => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <img src="${item.image}" alt="${item.name}" width="50" />
+      <span>${item.name} - ${toMoney(item.price)} x ${item.quantity}</span>
+      <button onclick="increaseQuantity(${item.productId})">+</button>
+      <button onclick="decreaseQuantity(${item.productId})">-</button>
+      <button onclick="removeProductFromCart(${item.productId})">Remove</button>
+    `;
+    cartListEl.appendChild(li);
+  });
+
+  updateCheckout();
+}
+
+/** Update checkout total display. */
+function updateCheckout() {
+  if (typeof document === "undefined" || !totalEl) return;
+  totalEl.textContent = `Total: ${toMoney(cartTotal())}`;
+}
+
+/** Wire up the payment form submit behavior. */
+function wireCheckoutForm() {
+  if (typeof document === "undefined" || !payForm) return;
+
+  payForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const amount = Number(payInput ? payInput.value : 0);
+    const result = pay(amount);
+
+    if (receiptEl) {
+      if (result > 0) {
+        receiptEl.textContent = `Payment successful! Change due: ${toMoney(result)}`;
+      } else if (result < 0) {
+        receiptEl.textContent = `Remaining balance: ${toMoney(Math.abs(result))}`;
+      } else {
+        receiptEl.textContent = "Payment successful! No change due.";
       }
+    }
 
-      if (payInput) payInput.value = "";
-      updateCheckout();
-    });
-  }
-
-  function init() {
-    renderProducts();
-    renderCart();
+    if (payInput) payInput.value = "";
     updateCheckout();
-    wireCheckoutForm();
-    // expose for refreshUI
-    window.renderCart = renderCart;
-    window.updateCheckout = updateCheckout;
-  }
+  });
+}
 
+/** Initialize UI on DOM ready. */
+function init() {
+  bindUI();
+  renderProducts();
+  renderCart();
+  updateCheckout();
+  wireCheckoutForm();
+}
+
+if (typeof document !== "undefined") {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {
